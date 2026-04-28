@@ -1,43 +1,68 @@
-require("dotenv").config({ path: ".env.local" });
-const { neon } = require("@neondatabase/serverless");
+import dotenv from 'dotenv';
+import pg from 'pg';
+
+dotenv.config({ path: '.env.local' });
+
+const { Pool } = pg;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
 async function migrate() {
-  const sql = neon(process.env.DATABASE_URL);
+  console.log('Running migrations...');
 
-  console.log("Running migrations...");
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS members (
-      member_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      full_name   VARCHAR(100) NOT NULL,
-      email       VARCHAR(100) UNIQUE NOT NULL,
-      member_type VARCHAR(20) NOT NULL CHECK (member_type IN ('STUDENT', 'LECTURER', 'STAFF')),
-      created_at  TIMESTAMPTZ DEFAULT NOW()
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS authors (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      nationality TEXT
     )
-  `;
+  `);
 
-  await sql`
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL UNIQUE
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS books (
-      book_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      title      VARCHAR(200) NOT NULL,
-      author     VARCHAR(100) NOT NULL,
-      isbn       VARCHAR(20) UNIQUE,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      isbn TEXT UNIQUE NOT NULL,
+      title TEXT NOT NULL,
+      author_id UUID REFERENCES authors(id) ON DELETE SET NULL,
+      category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+      total_copies INTEGER DEFAULT 1,
+      available_copies INTEGER DEFAULT 1
     )
-  `;
+  `);
 
-  await sql`
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS members (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      full_name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      member_type TEXT CHECK (member_type IN ('STUDENT', 'FACULTY', 'STAFF')),
+      joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS loans (
-      loan_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      member_id  UUID NOT NULL REFERENCES members(member_id),
-      book_id    UUID NOT NULL REFERENCES books(book_id),
-      loan_date  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      return_date TIMESTAMPTZ,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      book_id UUID REFERENCES books(id),
+      member_id UUID REFERENCES members(id),
+      loan_date DATE DEFAULT CURRENT_DATE,
+      due_date DATE NOT NULL,
+      return_date DATE,
+      status TEXT CHECK (status IN ('BORROWED', 'RETURNED', 'OVERDUE')) DEFAULT 'BORROWED'
     )
-  `;
+  `);
 
-  console.log("Migrations completed.");
+  console.log('Migrations completed.');
+  await pool.end();
 }
 
 migrate().catch((err) => {
